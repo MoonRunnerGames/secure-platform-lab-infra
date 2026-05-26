@@ -1,0 +1,93 @@
+name: Terraform Dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_apply:
+        description: "Run terraform apply after plan?"
+        required: true
+        type: boolean
+        default: false
+
+  push:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-dev.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
+env:
+  TF_WORKING_DIR: terraform
+  TF_ENVIRONMENT: dev
+  TF_IN_AUTOMATION: true
+
+  ARM_USE_OIDC: true
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan Dev
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Format Check
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -backend-config=backend/${{ env.TF_ENVIRONMENT }} -reconfigure
+
+      - name: Terraform Validate
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
+
+      - name: Terraform Plan
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -var-file=tfvars/${{ env.TF_ENVIRONMENT }}.tfvars -out=tfplan
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ env.TF_ENVIRONMENT }}
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
+          retention-days: 1
+
+  terraform-apply:
+    name: Terraform Apply Dev
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    environment: dev
+
+    if: github.event_name == 'workflow_dispatch' && inputs.run_apply == true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan-${{ env.TF_ENVIRONMENT }}
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Init
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -backend-config=backend/${{ env.TF_ENVIRONMENT }} -reconfigure
+
+      - name: Terraform Apply
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve tfplan
