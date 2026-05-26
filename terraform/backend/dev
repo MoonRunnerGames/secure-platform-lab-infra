@@ -2,3 +2,4 @@ resource_group_name  = "rg-secure-platform-lab-shared-tfstate"
 storage_account_name = "stsecureplatformlabdec"
 container_name       = "tfstate"
 key                  = "dev.terraform.tfstate"
+use_azuread_auth     = true
