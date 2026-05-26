@@ -1,0 +1,53 @@
+name: Provisioning
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-plan.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_WORKING_DIR: terraform
+
+  ARM_USE_OIDC: true
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  terraform-plan-dev:
+    name: Terraform Plan Dev
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Format Check
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -backend-config=backend/dev -reconfigure
+
+      - name: Terraform Validate
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
+
+      - name: Terraform Plan
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -var-file=tfvars/dev.tfvars -out=tfplan
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-dev
+          path: ${{ env.TF_WORKING_DIR }}/tfplan
