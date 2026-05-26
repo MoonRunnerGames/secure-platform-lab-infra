@@ -1,0 +1,5 @@
+
+resource_group_name  = "rg-secure-platform-lab-shared-tfstate"
+storage_account_name = "stsecureplatformlabdec"
+container_name       = "tfstate"
+key                  = "preprod.terraform.tfstate"
