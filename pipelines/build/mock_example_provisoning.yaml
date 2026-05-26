@@ -1,0 +1,241 @@
+trigger:
+  branches:
+    include:
+    - main
+    - feature/*
+
+parameters:
+- name: deploy_env
+  displayName: Environment
+  type: string
+  default: DEV
+  values:
+  - DEV
+  - DEV-PP
+  - DEV-PP-PD
+  - PP
+  - PP-PD
+
+- name: terraform_plan_only
+  displayName: Terraform Plan Only?
+  type: boolean
+  default: false
+
+/*
+resources:
+  repositories:
+  - repository: Templates
+    type: git
+    name: Ecom.Infrastructure/Next.Ecommerce.Infrastructure.Templates
+    ref: refs/heads/master
+  - repository: Pipelines
+    type: git
+    name: Ecom.Infrastructure/Ecom.Templates.Pipelines
+    ref: refs/tags/1.1
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+- name: version_major
+  value: 0
+- name: version_minor
+  value: 0
+- name: version_revision
+  value: $[counter(format('{0}.{1}', variables['version_major'], variables['version_minor']), 1)]
+- name: terraform_version
+  value: '1.12.1'
+# Terraform dependencies for each environment, change to development due to ODM naming convention
+- name: development_subscription_id
+  value: #find subscription value
+- name: development_terraform_depends_on
+  value: Build
+- name: pp_subscription_id
+  value: 
+- name: pp_terraform_depends_on
+  ${{ if contains(parameters.deploy_env, 'development') }}:
+    value: development_deploy
+  ${{ else }}:
+    value: Build
+- name: pd_subscription_id
+  value:
+- name: pd_terraform_depends_on
+  value: pp_deploy
+# Named Conditional Variables
+- name: terraform_plan_only
+  value: ${{ or(parameters.terraform_plan_only, eq(variables['Build.Reason'], 'PullRequest')) }}
+# ServiceNow variables
+- name: servicenow_assignment_group_name
+  value: "Infrastructure & Cloud Services - DevOps Ecommerce"
+- name: servicenow_backout_plan
+  value: "Revert latest commit to main branch: \nRun new pipeline from reverted commit, this will restore the latest Terraform state"
+- name: servicenow_cmdb_ci
+  value: "TODO: Add value"
+- name: servicenow_justification
+  value: Required tro deploy the latest version of the infrastructure.
+- name: servicenow_risk_impact_analysis
+  value: |-
+    "Risk: Low - this change has been made and tested in lower environments
+
+    Impact: Medium - this change has the potential to impact multiple websites"
+- name: servicenow_short_description
+  value: "Deployment of $(Build.Repository.Name) to Production"
+- name: servicenow_test_plan
+  value: |-
+    "This change has been tested on SX, CI and Preprod environments.""
+stages:
+# PR Checks
+- ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
+  - stage: pre_commit
+    jobs:
+    - template: nix/job__run_with_packages.yaml@Pipelines
+      parameters:
+        job_display_name: Pre Commit checks
+        pre_steps:
+        - checkout: self
+          persistCredentials: true
+          fetchDepth: 0
+        package: precommit_env
+        steps:
+        - template: precommit/steps__run.yaml@Pipelines
+        - task: Bash@3
+          displayName: Git diff
+          inputs:
+            targetType: inline
+            script: |
+              git diff
+
+# Main pipeline
+- ${{ else }}:
+  - stage: prereqs
+    displayName: Prerequisites
+    jobs:
+    - template: azure_devops/jobs__update_build_number.yaml@Pipelines
+      parameters:
+        components:
+        - ${{ variables.version_major }}
+        - ${{ variables.version_minor }}
+        - $(version_revision)
+
+  - stage: build
+    displayName: TF Build
+    dependsOn: prereqs
+    jobs:
+    - template:
+      parameters:
+        terraform_filepath: $(Build.SourcesDirectory)/deploy/base
+        terraform_artefact_name: 
+        terraform_serviceConnection: 
+        terraform_version: ${{ variables['terraform_version'] }}
+        terraform_build_stage: true
+    - template: 
+      parameters:
+        terraform_filepath: $(Build.SourcesDirectory)/terraform
+        terraform_artefact_name: terraform_azure
+        terraform_serviceConnection: 
+        terraform_version: ${{ variables['terraform_version'] }}
+        terraform_build_stage: true
+
+  - ${{ each env in split(parameters.deploy_env, '-') }}:
+    - stage: ${{ lower(env) }}_deploy_base
+      displayName: ${{ env }} Deploy Base
+      dependsOn:
+      - Build
+      - ${{ if ne(variables.terraform_plan_only, 'true') }}:
+        - ${{ variables[format('{0}_terraform_depends_on', lower(env))] }}
+      - ${{ if and(eq(env, 'PD'), ne(variables.terraform_plan_only, 'true')) }}:
+        - servicenow_change_gate
+      jobs:
+      - template:
+        parameters:
+          terraform_rbac_state: true
+          environment: ${{ env }}
+          terraform_serviceConnection: 
+          terraform_state_rg: 
+          terraform_state_storage: 
+          terraform_state_container: 
+          terraform_state_key: 
+          terraform_plan_container: tfplan
+          terraform_destroy_all: false
+          terraform_version: ${{ variables['terraform_version'] }}
+          terraform_artefact_name: 
+          terraform_subscription_id: ${{ variables[format('{0}_subscription_id', lower(env))] }}
+          terraform_plan_only: ${{ eq(variables.terraform_plan_only, 'true') }}
+          terraform_plan_job_name: plan_${{ lower(env) }}
+          terraform_devops_env: ${{ lower(env) }}
+          terraform_plan_job_displayName: Plan ${{ env }}
+          terraform_deploy_job_name: deploy_${{ lower(env) }}
+          terraform_deploy_job_displayName: Deploy ${{ env }}
+          terraform_vars_file: vars/${{ lower(env) }}eun.tfvars
+          terraform_input_params:
+          - key: build_info
+            value: $(Build.DefinitionName)
+          - key: build_repouri
+            value: $(Build.Repository.Uri)
+          - key: devops_organisation_url
+            value: $(System.CollectionUri)
+          - key: devops_access_token
+            value: $(System.AccessToken)
+    - stage: ${{ lower(env) }}_deploy
+      displayName: ${{ env }} Deploy
+      dependsOn:
+      - Build
+      - ${{ lower(env) }}_deploy_base
+      - ${{ if ne(variables.terraform_plan_only, 'true') }}:
+        - ${{ variables[format('{0}_terraform_depends_on', lower(env))] }}
+      - ${{ if and(eq(env, 'PD'), ne(variables.terraform_plan_only, 'true')) }}:
+        - servicenow_change_gate
+      jobs:
+      - template: 
+        parameters:
+          terraform_rbac_state: true
+          environment: ${{ env }}
+          terraform_serviceConnection: 
+          terraform_state_rg: 
+          terraform_state_storage:
+          terraform_state_container: 
+          terraform_state_key: 
+          terraform_plan_container: tfplan
+          terraform_destroy_all: false
+          terraform_version: ${{ variables['terraform_version'] }}
+          terraform_artefact_name: terraform_azure
+          terraform_subscription_id: ${{ variables[format('{0}_subscription_id', lower(env))] }}
+          terraform_plan_only: ${{ eq(variables.terraform_plan_only, 'true') }}
+          terraform_plan_job_name: plan_${{ lower(env) }}
+          terraform_devops_env: ${{ lower(env) }}
+          terraform_plan_job_displayName: Plan ${{ env }}
+          terraform_deploy_job_name: deploy_${{ lower(env) }}
+          terraform_deploy_job_displayName: Deploy ${{ env }}
+          terraform_vars_file: vars/${{ lower(env) }}eun.tfvars
+          terraform_input_params:
+          - key: build_info
+            value: $(Build.DefinitionName)
+          - key: build_repouri
+            value: $(Build.Repository.Uri)
+          - key: devops_organisation_url
+            value: $(System.CollectionUri)
+          - key: devops_access_token
+            value: $(System.AccessToken)
+    - ${{ if and(eq(env, 'PD'), ne(variables.terraform_plan_only, 'true')) }}:
+      - stage: servicenow_change_gate
+        displayName: ServiceNow Change Gate
+        dependsOn:
+        - ${{ variables[format('{0}_terraform_depends_on', lower(env))] }}
+        jobs:
+        - template: 
+          parameters:
+            devops_environment: pd
+            job_display_name: Change Request
+            job_name: servicenow
+            description: $(Build.SourceVersionMessage)
+            implementation_plan: "Run the Production stage(s) in this pipeline: $(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/?buildId=$(Build.BuildId)"
+            summary: $(Build.SourceVersionMessage)
+            assignment_group_name: ${{ variables.servicenow_assignment_group_name }}
+            backout_plan: ${{ variables.servicenow_backout_plan }}
+            cmdb_ci: ${{ variables.servicenow_cmdb_ci }}
+            justification: ${{ variables.servicenow_justification }}
+            risk_impact_analysis: ${{ variables.servicenow_risk_impact_analysis }}
+            short_description: ${{ variables.servicenow_short_description }}
+            test_plan: ${{ variables.servicenow_test_plan }}
+
+*/
