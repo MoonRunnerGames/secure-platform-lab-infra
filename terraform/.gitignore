@@ -4,8 +4,19 @@
 *.tfstate.*
 crash.log
 crash.*.log
-*.tfvars
-*.tfvars.json
+
+# Ignore sensitive/local Terraform variable files
+terraform.tfvars
+*.local.tfvars
+*.secret.tfvars
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Allow committed environment tfvars used by pipelines
+!terraform/tfvars/
+!terraform/tfvars/*.tfvars
+
+# Keep examples committed
 !*.tfvars.example
 
 # Terraform plan files
