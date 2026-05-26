@@ -1,0 +1,52 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  terraformWorkingDirectory: 'terraform'
+  backendConfig: 'backend/dev'
+  serviceConnectionName: 'YOUR-AZURE-SERVICE-CONNECTION-NAME'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: TerraformPlan
+    displayName: Terraform Plan
+    jobs:
+      - job: Plan
+        displayName: Terraform Plan Dev
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: Terraform Init, Validate and Plan
+            inputs:
+              azureSubscription: '$(serviceConnectionName)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+
+                cd $(terraformWorkingDirectory)
+
+                terraform version
+
+                terraform init \
+                  -backend-config=$(backendConfig) \
+                  -reconfigure
+
+                terraform validate
+
+                terraform plan \
+                  -out=tfplan
+
+          - publish: '$(terraformWorkingDirectory)/tfplan'
+            displayName: Publish Terraform Plan
+            artifact: terraform-plan
