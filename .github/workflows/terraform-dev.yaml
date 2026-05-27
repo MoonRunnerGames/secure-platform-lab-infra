@@ -49,6 +49,13 @@ jobs:
       - name: Terraform Format Check
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} fmt -check -recursive
 
+      - name: Azure Login using OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
       - name: Terraform Init
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -backend-config=backend/${{ env.TF_ENVIRONMENT }} -reconfigure
 
@@ -85,6 +92,13 @@ jobs:
         with:
           name: terraform-plan-${{ env.TF_ENVIRONMENT }}
           path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Azure Login using OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform Init
         run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -backend-config=backend/${{ env.TF_ENVIRONMENT }} -reconfigure

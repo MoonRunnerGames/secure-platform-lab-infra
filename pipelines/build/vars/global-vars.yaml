@@ -1,3 +1,0 @@
-variables:
-- name: dummy_variable
-  value: 'dummy value'
