@@ -1,54 +1,32 @@
-{
-  description = "Secure Platform Lab infrastructure tooling";
+set shell := ["bash", "-euo", "pipefail", "-c"]
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-  };
+tf_dir := env_var_or_default("TF_DIR", ".")
+plan_file := env_var_or_default("TF_PLAN_FILE", "tfplan")
+plan_text := env_var_or_default("TF_PLAN_TEXT", "tfplan.txt")
 
-  outputs = { self, nixpkgs }:
-    let
-      supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+default:
+    @just --list
 
-      forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+fmt:
+    terraform -chdir={{tf_dir}} fmt -check -recursive
 
-      pkgsFor = system: import nixpkgs {
-        inherit system;
-      };
-    in
-    {
-      devShells = forAllSystems (system:
-        let
-          pkgs = pkgsFor system;
-        in
-        {
-          default = pkgs.mkShell {
-            packages = with pkgs; [
-              terraform
-              terraform-docs
-              tflint
-              checkov
-              azure-cli
-              kubectl
-              kubernetes-helm
-              jq
-              yq-go
-              git
-              just
-            ];
+fmt-fix:
+    terraform -chdir={{tf_dir}} fmt -recursive
 
-            shellHook = ''
-              echo "Secure Platform Lab infra shell"
-              echo "Tools available:"
-              echo "- terraform"
-              echo "- terraform-docs"
-              echo "- tflint"
-              echo "- checkov"
-              echo "- az"
-              echo "- kubectl"
-              echo "- helm"
-              echo "- just"
-            '';
-          };
-        });
-    };
-}
+init:
+    terraform -chdir={{tf_dir}} init -input=false
+
+validate:
+    terraform -chdir={{tf_dir}} validate
+
+plan:
+    terraform -chdir={{tf_dir}} plan -input=false -out={{plan_file}}
+    terraform -chdir={{tf_dir}} show -no-color {{plan_file}} > {{plan_text}}
+
+apply:
+    terraform -chdir={{tf_dir}} apply -input=false -auto-approve {{plan_file}}
+
+check: fmt init validate plan
+
+clean-plan:
+    rm -f {{tf_dir}}/{{plan_file}} {{tf_dir}}/{{plan_text}}
